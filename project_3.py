@@ -210,7 +210,144 @@ def a_star_search(ship, start, goal):
 
     return []  # No path found
 
-def main():
-    print("this code is running")
+def compute_value_function(ship, max_iters=1000, tol=1e-3):
+    D = ship.shape[0]
+    T = np.full((D, D, D, D), 1000.0)
+    open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r][c] == 'O']
 
+    for bx, by in open_cells:
+        T[bx][by][bx][by] = 0.0  # If bot and rat are at same location
+
+    for _ in range(max_iters):
+        delta = 0.0
+        new_T = T.copy()
+
+        for bx, by in open_cells:
+            for rx, ry in open_cells:
+                if (bx, by) == (rx, ry): continue
+
+                min_expected = float('inf')
+
+                for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    nbx, nby = bx + dr, by + dc
+                    if not (0 <= nbx < D and 0 <= nby < D): continue
+                    if ship[nbx][nby] != 'O': continue
+
+                    rat_moves = [(rx + rdx, ry + rdy)
+                                 for rdx, rdy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                                 if 0 <= rx + rdx < D and 0 <= ry + rdy < D and ship[rx + rdx][ry + rdy] == 'O']
+
+                    if not rat_moves:
+                        expected = T[nbx][nby][rx][ry]
+                    else:
+                        expected = sum(T[nbx][nby][nrx][nry] for nrx, nry in rat_moves) / len(rat_moves)
+
+                    min_expected = min(min_expected, 1 + expected)
+
+                new_T[bx][by][rx][ry] = min_expected
+                delta = max(delta, abs(T[bx][by][rx][ry] - min_expected))
+
+        T = new_T
+        if delta < tol:
+            print("Value iteration converged.")
+            break
+
+    return T
+
+def best_bot_move(ship, bx, by, rx, ry, T):
+    D = ship.shape[0]
+    best_action = (bx, by)
+    best_value = float('inf')
+
+    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        nbx, nby = bx + dr, by + dc
+        if not (0 <= nbx < D and 0 <= nby < D): continue
+        if ship[nbx][nby] != 'O': continue
+
+        # All valid rat moves
+        rat_moves = [(rx + rdx, ry + rdy)
+                     for rdx, rdy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                     if 0 <= rx + rdx < D and 0 <= ry + rdy < D and ship[rx + rdx][ry + rdy] == 'O']
+
+        if not rat_moves:
+            expected_value = T[nbx][nby][rx][ry]
+        else:
+            expected_value = sum(T[nbx][nby][nrx][nry] for nrx, nry in rat_moves) / len(rat_moves)
+
+        if expected_value < best_value:
+            best_value = expected_value
+            best_action = (nbx, nby)
+
+    return best_action
+
+def rat_movement(ship, start):
+    r, c = start
+    D = ship.shape[0]  # assuming square grid
+    neighbors = []
+
+    # Possible movement directions: up, down, left, right
+    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
+    for dr, dc in directions:
+        nr, nc = r + dr, c + dc
+        # Check bounds and if the neighbor cell is open
+        if 0 <= nr < D and 0 <= nc < D and ship[nr, nc] == 'O':
+            neighbors.append((nr, nc))
+
+    if not neighbors:
+        # No valid moves (e.g., surrounded by walls)
+        return start
+
+    # Choose a random valid neighbor
+    return random.choice(neighbors)
+
+
+def rat_search(ship, bot_start, rat_start, T, max_steps=1000):
+    D = ship.shape[0]
+    bot_history = [bot_start]
+    rat_history = [rat_start]
+
+    for step in range(max_steps):
+        bot_x, bot_y = bot_history[-1]
+        rat_x, rat_y = rat_history[-1]
+
+        # Bot moves
+        next_bot_move = best_bot_move(ship, bot_x, bot_y, rat_x, rat_y, T)
+        bot_history.append(next_bot_move)
+
+        # Check if bot catches rat
+        if next_bot_move == (rat_x, rat_y):
+            print(f"Bot caught the rat in {step + 1} steps!")
+            return step + 1, bot_history, rat_history
+
+        # Rat moves
+        next_rat_move = rat_movement(ship, (rat_x, rat_y))
+        rat_history.append(next_rat_move)
+
+        # Check if rat walks into bot
+        if next_rat_move == next_bot_move:
+            print(f"Rat walked into bot in {step + 1} steps!")
+            return step + 1, bot_history, rat_history
+
+    print("Max steps reached. Rat not caught.")
+    return max_steps, bot_history, rat_history
+
+
+
+# === Main function ===
+def main():
+    ship = generate_ship(5, 0.5)
+    D = ship.shape[0]
+    open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r, c] == 'O']
+    bot_pos = random.choice(open_cells)
+    rat_pos = random.choice(open_cells)
+
+    print("Computing value function...")
+    T = compute_value_function(ship)
+    print("Value function ready!")
+
+    steps, bot_path, rat_path = rat_search(ship, bot_pos, rat_pos, T)
+    print(f"Rat caught in {steps} steps!")
+
+# Run it
 main()
