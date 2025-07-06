@@ -156,61 +156,8 @@ def reconstruct_path(came_from, current):
 
 
 # A* search
-def a_star_search(ship, start, goal):
-    D = len(ship)  # ship dimension
 
-    '''
-    initialize priority queue with tuple (f_score, g_score, current_node)
-        - f_score (f(n)) = g_score (g(n)) + heuristic (h(n))
-        - g_score starts at 0 (distance from starting cell to next cell)
-        - heuristic = manhattan_distance from start to goal
-    '''
-
-    # initialize the priority queue (open_set) with tuple (f_score, g_score, start)
-    open_set = [(manhattan_distance(start, goal), 0, start)]
-    came_from = {} # initialize dictionary for storing the path
-    g_score = {start: 0} # the starting cell has 0 cost
-
-    # while the queue is not empty (there are still cells to explore)
-    while open_set:
-        # pop the node with the lowest estimated total cost (f_score)
-        # cost is g_score (real cost so far)
-        # current is the node's position
-        _, cost, current = heapq.heappop(open_set)
-
-        # if the current cell is the goal cell, reconstruct the path
-        if current == goal:
-            return reconstruct_path(came_from, current)
-
-        # store the current cell's coordinates
-        r, c = current
-
-        # loop over the 4 directions (we're gonna look at neighboring cells of the current cell)
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            # calculate the neighbor's coordinates
-            nr, nc = r + dr, c + dc
-            neighbor = (nr, nc) # store as a tuple
-
-            # check if the neighbor cell is within bounds and is an open cell
-            if 0 <= nr < D and 0 <= nc < D and ship[nr][nc] == 'O':
-                # calculate a tentative score for reaching this neighbor
-                tentative_g = cost + 1
-
-                # have we visited this neighbor? or is this path shorter than a previous path we found to it?
-                if neighbor not in g_score or tentative_g < g_score[neighbor]:
-                    # update the best known cost to reach this neighbor
-                    g_score[neighbor] = tentative_g
-
-                    # compute the estimated total cost to goal through the neighbor
-                    f_score = tentative_g + manhattan_distance(neighbor, goal)
-
-                    # add neighbor to the queue with its updated scores
-                    heapq.heappush(open_set, (f_score, tentative_g, neighbor))
-                    came_from[neighbor] = current # record that the neighbor was reached through the current cell
-
-    return []  # No path found
-
-def compute_value_function(ship, max_iters=1000, tol=1e-3):
+def compute_value_function(ship, max_iters=1000, tol=1e-2):
     D = ship.shape[0]
     T = np.full((D, D, D, D), 1000.0)
     open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r][c] == 'O']
@@ -336,7 +283,7 @@ def rat_search(ship, bot_start, rat_start, T, max_steps=1000):
 
 # === Main function ===
 def main():
-    ship = generate_ship(5, 0.5)
+    ship = generate_ship(20, 0.5)
     D = ship.shape[0]
     open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r, c] == 'O']
     bot_pos = random.choice(open_cells)
