@@ -8,9 +8,8 @@ import heapq # priority queue for A* search
 import random
 # for machine learning
 import torch
-from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.optim as optim
 
 
 # === Ship generation ===
@@ -400,10 +399,83 @@ def rat_search(ship, bot_start, rat_start, T, max_steps=1000):
     return max_steps, bot_history, rat_history
 
 
+# === Machine Learning (Part 2) ===
+
+def train_model_from_T(T):
+    D = T.shape[0]
+
+    # Step 1: Build dataset from T, skipping infinite values
+    X = []
+    y = []
+
+    for bot_r in range(D):
+        for bot_c in range(D):
+            for rat_r in range(D):
+                for rat_c in range(D):
+                    expected_steps = T[bot_r][bot_c][rat_r][rat_c]
+                    if np.isinf(expected_steps):  # Skip invalid entries
+                        continue
+                    X.append([bot_r, bot_c, rat_r, rat_c])
+                    y.append(expected_steps)
+
+    print(f"Total valid training samples: {len(X)}")
+    print(f"Total skipped (invalid) entries: {D**4 - len(X)}")
+
+    # Step 2: Convert to tensors and normalize inputs
+    X = torch.tensor(X, dtype=torch.float32) / D  # normalize to [0, 1]
+    y = torch.tensor(y, dtype=torch.float32).view(-1, 1)
+
+    # Step 3: Define a simple feedforward neural network
+    class TNet(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.model = nn.Sequential(
+                nn.Linear(4, 64),
+                nn.ReLU(),
+                nn.Linear(64, 64),
+                nn.ReLU(),
+                nn.Linear(64, 1)
+            )
+
+        def forward(self, x):
+            return self.model(x)
+
+    model = TNet()
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    # Step 4: Train model
+    epochs = 150  # You can increase if loss is still going down
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        outputs = model(X)
+        loss = criterion(outputs, y)
+        if torch.isnan(loss):
+            print("⚠️ Loss is NaN! Check your data!")
+            break
+        loss.backward()
+        optimizer.step()
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
+
+    # Step 5: Test prediction on a random config
+    with torch.no_grad():
+        test_index = random.randint(0, len(X) - 1)
+        test_input_raw = X[test_index] * D  # undo normalization for display
+        test_input = X[test_index].unsqueeze(0)  # model expects batch dim
+        true_value = y[test_index].item()
+        predicted = model(test_input).item()
+        print("\n✅ Sample Test:")
+        print(f"Input config (bot_r, bot_c, rat_r, rat_c): {test_input_raw.numpy().astype(int)}")
+        print(f"True expected steps: {true_value:.2f}")
+        print(f"Model predicted steps: {predicted:.2f}")
+
+    return model
+
 
 # === Main function ===
 def main():
-    ship = generate_ship(30, 0.5)
+    ship = generate_ship(20, 0.5)
     D = ship.shape[0]
     open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r, c] == 'O']
     bot_pos = random.choice(open_cells)
@@ -413,8 +485,16 @@ def main():
     T = compute_value_function(ship)
     print("Value function ready!")
 
+    # Train the model on T
+    print("Training ML model to predict T...")
+    model = train_model_from_T(T)
+
+
+    '''
     steps, bot_path, rat_path = rat_search(ship, bot_pos, rat_pos, T)
     print(f"Rat caught in {steps} steps!")
+    '''
+
 
 # Run it
 main()
