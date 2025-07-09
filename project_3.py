@@ -445,7 +445,7 @@ def train_model_from_T(T):
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Step 4: Train model
-    epochs = 150  # You can increase if loss is still going down
+    epochs = 200  # You can increase if loss is still going down
     for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
