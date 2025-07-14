@@ -216,7 +216,7 @@ def a_star_search(ship, start, goal):
     return []  # No path found
 
 
-# === Generating T array (and helper functions) ===
+# === Generating T array ===
 
 # compute value function through iterations for each (bot, rat) configuration
 # in the 4D array T to calculate expected number of moves
@@ -303,6 +303,40 @@ def compute_value_function(ship, max_iters=1000, tol=0.3):
     print(f"Final T stats: min={np.nanmin(T):.2f}, max={np.nanmax(T):.2f}")
     return T
 
+
+# simulating search with T to find max T configurations (for write-up) ===
+def analyze_max_T_configuration(D=10, p=0.5, max_iters=1000, tol=0.3):
+    # generate the ship
+    ship = generate_ship(D=D, p=p)
+    print("Printing ship...")
+    print_ship(ship)
+
+    # compute T array for the ship
+    T = compute_value_function(ship, max_iters=max_iters, tol=tol)
+
+    # find the maximum value(s) in T
+    max_value = np.nanmax(T)
+    print(f"\nMaximum T value (longest expected steps): {max_value:.2f}")
+
+    # collect all bot/rat pairs with that max value
+    max_configs = []
+    for bx in range(D):
+        for by in range(D):
+            for rx in range(D):
+                for ry in range(D):
+                    if T[bx][by][rx][ry] == max_value:
+                        max_configs.append(((bx, by), (rx, ry)))
+
+    print(f"\nFound {len(max_configs)} configurations with max T:")
+
+    # print each max-value configuration
+    for (bx, by), (rx, ry) in max_configs:
+        print(f"  Bot: ({bx},{by})  |  Rat: ({rx},{ry})")
+
+    return ship, T, max_configs
+
+
+# === Simulating the bot's search with T (no machine learning) ===
 
 # determine the next best move the bot can make to minimize the expected steps to catch the rat
 def best_bot_move(ship, bx, by, rx, ry, T):
@@ -500,80 +534,6 @@ def evaluate_model(model, test_data):
     return predictions # return the predicted values for the testing data
 
 
-'''
-def train_model_from_T(T):
-    D = T.shape[0]
-
-    # Step 1: Build dataset from T, skipping infinite values
-    X = []
-    y = []
-
-    for bot_r in range(D):
-        for bot_c in range(D):
-            for rat_r in range(D):
-                for rat_c in range(D):
-                    expected_steps = T[bot_r][bot_c][rat_r][rat_c]
-                    if np.isinf(expected_steps):  # Skip invalid entries
-                        continue
-                    X.append([bot_r, bot_c, rat_r, rat_c])
-                    y.append(expected_steps)
-
-    print(f"Total valid training samples: {len(X)}")
-    print(f"Total skipped (invalid) entries: {D**4 - len(X)}")
-
-    # Step 2: Convert to tensors and normalize inputs
-    X = torch.tensor(X, dtype=torch.float32) / D  # normalize to [0, 1]
-    y = torch.tensor(y, dtype=torch.float32).view(-1, 1)
-
-    # Step 3: Define a simple feedforward neural network
-    class TNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.model = nn.Sequential(
-                nn.Linear(4, 64),
-                nn.ReLU(),
-                nn.Linear(64, 64),
-                nn.ReLU(),
-                nn.Linear(64, 1)
-            )
-
-        def forward(self, x):
-            return self.model(x)
-
-    model = TNet()
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-    # Step 4: Train model
-    epochs = 200  # You can increase if loss is still going down
-    for epoch in range(epochs):
-        model.train()
-        optimizer.zero_grad()
-        outputs = model(X)
-        loss = criterion(outputs, y)
-        if torch.isnan(loss):
-            print("⚠️ Loss is NaN! Check your data!")
-            break
-        loss.backward()
-        optimizer.step()
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
-
-    # Step 5: Test prediction on a random config
-    with torch.no_grad():
-        test_index = random.randint(0, len(X) - 1)
-        test_input_raw = X[test_index] * D  # undo normalization for display
-        test_input = X[test_index].unsqueeze(0)  # model expects batch dim
-        true_value = y[test_index].item()
-        predicted = model(test_input).item()
-        print("\n✅ Sample Test:")
-        print(f"Input config (bot_r, bot_c, rat_r, rat_c): {test_input_raw.numpy().astype(int)}")
-        print(f"True expected steps: {true_value:.2f}")
-        print(f"Model predicted steps: {predicted:.2f}")
-
-    return model
-    '''
-
-
 # === Main function ===
 def main():
     ship = generate_ship(20, 0.5)
@@ -582,12 +542,29 @@ def main():
     bot_pos = random.choice(open_cells)
     rat_pos = random.choice(open_cells)
 
+    '''
     print("Computing value function...")
     T = compute_value_function(ship)
     print("Value function ready!")
 
+    # test it to see initial prediction (no machine learning yet)
+    steps, bot_path, rat_path = rat_search(ship, bot_pos, rat_pos, T)
+    print(f"Rat caught in {steps} steps!")
+
+    # find max-value configurations in T (for write-up)
+    ship, T, max_configs = analyze_max_T_configuration(20, 0.5)
+    '''
+    
+    # practice machine learning on a generated ship
+    ml_ship = generate_ship(20, 0.5)
+    ml_D = ship.shape[0]
+    
+    print("Computing value function...")
+    ml_T = compute_value_function(ml_ship)
+    print("Value function ready!")
+
     print("Building dataset from T...")
-    data = build_dataset_from_T(T, D)
+    data = build_dataset_from_T(ml_T, ml_D)
     print(f"Total data points: {len(data)}")
 
     # Shuffle and create a fixed sample
@@ -604,18 +581,7 @@ def main():
 
     # evaluate on the test set
     evaluate_model(model, test_data)
-
-    '''
-    # Train the model on T
-    print("Training ML model to predict T...")
-    model = train_model_from_T(T)
-    '''
-
-
-    '''
-    steps, bot_path, rat_path = rat_search(ship, bot_pos, rat_pos, T)
-    print(f"Rat caught in {steps} steps!")
-    '''
+    
 
 
 # Run it
