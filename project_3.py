@@ -599,8 +599,8 @@ def main():
 
     # train the model
     epochs = 10000
-    alpha = 0.002
-    train_model(model, train_sample, 10000, sample_size, alpha)
+    alpha = 0.005
+    train_model(model, train_sample, epochs, sample_size, alpha)
 
     # evaluate on the test set
     evaluate_model(model, test_data)
