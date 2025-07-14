@@ -401,6 +401,106 @@ def rat_search(ship, bot_start, rat_start, T, max_steps=1000):
 
 # === Machine Learning (Part 2) ===
 
+# model class
+class RatNet(nn.Module):
+    def __init__(self): # "initializer constructor" for the class
+        super().__init__() # extend the constructor
+
+        # create the 3 layers (input_size, output_size) of the neural network
+        self.fc1 = nn.Linear(4, 64) # input layer
+        self.fc2 = nn.Linear(64, 64) # hidden layer
+        self.fc3 = nn.Linear(64, 1) # output layer
+
+    # computes the output of the network given input x
+    def forward(self, x):
+        # apply first layer to input; ReLU activation function used for non-linearity
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x)) # apply second layer and activation function
+        x = self.fc3(x) # apply third layer to produce output (no activation function needed)
+        return x # return final output tensor
+    
+
+# creating a dataset from T
+def build_dataset_from_T(T, D):
+    data = [] # for storing dataset examples
+
+    # loop over T for each (bot, rat) configuration
+    for bx in range(D):
+        for by in range(D):
+            for rx in range(D):
+                for ry in range(D):
+                    # get value from current configuration
+                    steps = T[bx][by][rx][ry]
+                    if np.isfinite(steps): # check if the value is a finite number (only build dataset considering finite values)
+                        data.append(((bx, by, rx, ry), steps)) # add the configuration and its value to the dataset
+    return data
+
+
+# get a random batch of inputs and outputs (for training)
+def get_batch(data, batch_size):
+    # get random indices from among dataset indices
+    batch_indices = random.sample(range(len(data)), k=batch_size)
+
+    # get the input values of the random indices
+        # convert each (bot, rat) tuple to a list
+        # convert the list of inputs into a tensor
+    x_batch = torch.tensor([list(data[i][0]) for i in batch_indices], dtype=torch.float32)
+    
+    # do the same with the corresponding output values
+    y_batch = torch.tensor([data[i][1] for i in batch_indices], dtype=torch.float32).unsqueeze(1)
+    return x_batch, y_batch # return the input and output tensors for the random batch
+
+
+# training loop
+def train_model(model, data, epochs=10, batch_size=1024, lr=0.001):
+    optimizer = optim.Adam(model.parameters(), lr=lr) # create an optimizer for the model with a learning rate (alpha)
+    loss_fn = nn.MSELoss() # loss function - mean squared error
+
+    # loop over epochs
+    for epoch in range(epochs):
+        total_loss = 0 # initialize loss
+        num_batches = len(data) // batch_size # calculate how many batches fit into the dataset
+
+        # loop over every batch in the epoch
+        for _ in range(num_batches):
+            # get random batch of inputs and outputs
+            x_batch, y_batch = get_batch(data, batch_size)
+
+            # clears old gradients to prepare for the new batch
+            optimizer.zero_grad() 
+
+            # run the model on the input batch to get predictions
+            predictions = model(x_batch)
+
+            # compute the mean squared error (loss) between predictions and actual outputs
+            loss = loss_fn(predictions, y_batch)
+            loss.backward() # perform gradient descent
+            optimizer.step() # update model's parameters based on gradients
+            total_loss += loss.item() # add this batch's loss to the total loss
+
+        avg_loss = total_loss / num_batches # average loss
+        print(f"Epoch {epoch+1} - Average Loss: {avg_loss:.4f}") # print avg loss for each epoch
+
+
+# evaluates the trained model on test data
+def evaluate_model(model, test_data):
+    # convert all inputs in the testing data into a tensor
+    x_test = torch.tensor([list(pos) for pos, _ in test_data], dtype=torch.float32)
+    
+    # convert all outputs in the testing data into a tensor, reshape the tensor for a single output
+    y_test = torch.tensor([label for _, label in test_data], dtype=torch.float32).unsqueeze(1)
+    model.eval() # set to evaluation mode
+
+    # calculations should be done without keeping track of gradients
+    with torch.no_grad():
+        # run the model on all test inputs --> get predictions
+        predictions = model(x_test)
+        mse = nn.MSELoss()(predictions, y_test).item() # compute loss on test predictions
+    print(f"Test MSE: {mse:.4f}") # print loss
+    return predictions # return the predicted values for the testing data
+
+
+'''
 def train_model_from_T(T):
     D = T.shape[0]
 
@@ -471,6 +571,7 @@ def train_model_from_T(T):
         print(f"Model predicted steps: {predicted:.2f}")
 
     return model
+    '''
 
 
 # === Main function ===
@@ -485,9 +586,30 @@ def main():
     T = compute_value_function(ship)
     print("Value function ready!")
 
+    print("Building dataset from T...")
+    data = build_dataset_from_T(T, D)
+    print(f"Total data points: {len(data)}")
+
+    # Shuffle and create a fixed sample
+    sample_size = 10000
+    train_sample = random.sample(data, sample_size)
+    test_data = [d for d in data if d not in train_sample]
+
+    model = RatNet() # create the model
+
+    # train the model
+    epochs = 10000
+    alpha = 0.002
+    train_model(model, train_sample, 10000, sample_size, alpha)
+
+    # evaluate on the test set
+    evaluate_model(model, test_data)
+
+    '''
     # Train the model on T
     print("Training ML model to predict T...")
     model = train_model_from_T(T)
+    '''
 
 
     '''
