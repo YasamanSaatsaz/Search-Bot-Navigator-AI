@@ -534,6 +534,10 @@ def evaluate_model(model, test_data):
     return predictions # return the predicted values for the testing data
 
 
+#Shortest path to rat vs optimal path
+
+
+
 # === Main function ===
 def main():
     ship = generate_ship(20, 0.5)
@@ -583,6 +587,35 @@ def main():
     evaluate_model(model, test_data)
     
 
+    num_ships = 10
+    D = 10  # grid size
+    match_count = 0
+    total_configs = 0
 
+    for _ in range(num_ships):
+        ship = generate_ship(D, 0.5)
+        T = compute_value_function(ship)
+        open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r][c] == 'O']
+
+        for (bx, by) in open_cells:
+            for (rx, ry) in open_cells:
+                if (bx, by) == (rx, ry):
+                    continue
+
+                bot_T_action = best_bot_move(ship, bx, by, rx, ry, T)
+                path = a_star_search(ship, (bx, by), (rx, ry))  # your A* function
+
+                if path is None or len(path) < 2:
+                    continue
+
+                bot_astar_action = path[1]
+
+                if bot_T_action == bot_astar_action:
+                    match_count += 1
+
+                total_configs += 1
+
+    percentage = (match_count / total_configs) * 100 if total_configs > 0 else 0
+    print(f"Percentage of configurations where T-optimal move = A* move: {percentage:.2f}%")
 # Run it
 main()
