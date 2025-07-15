@@ -304,38 +304,6 @@ def compute_value_function(ship, max_iters=1000, tol=0.3):
     return T
 
 
-# simulating search with T to find max T configurations (for write-up) ===
-def analyze_max_T_configuration(D=10, p=0.5, max_iters=1000, tol=0.3):
-    # generate the ship
-    ship = generate_ship(D=D, p=p)
-    print("Printing ship...")
-    print_ship(ship)
-
-    # compute T array for the ship
-    T = compute_value_function(ship, max_iters=max_iters, tol=tol)
-
-    # find the maximum value(s) in T
-    max_value = np.nanmax(T)
-    print(f"\nMaximum T value (longest expected steps): {max_value:.2f}")
-
-    # collect all bot/rat pairs with that max value
-    max_configs = []
-    for bx in range(D):
-        for by in range(D):
-            for rx in range(D):
-                for ry in range(D):
-                    if T[bx][by][rx][ry] == max_value:
-                        max_configs.append(((bx, by), (rx, ry)))
-
-    print(f"\nFound {len(max_configs)} configurations with max T:")
-
-    # print each max-value configuration
-    for (bx, by), (rx, ry) in max_configs:
-        print(f"  Bot: ({bx},{by})  |  Rat: ({rx},{ry})")
-
-    return ship, T, max_configs
-
-
 # === Simulating the bot's search with T (no machine learning) ===
 
 # determine the next best move the bot can make to minimize the expected steps to catch the rat
@@ -534,8 +502,77 @@ def evaluate_model(model, test_data):
     return predictions # return the predicted values for the testing data
 
 
-#Shortest path to rat vs optimal path
+# === Functions for write-up ===
 
+# simulating search with T to find max T configurations (for write-up) ===
+def analyze_max_T_configuration(D=10, p=0.5, max_iters=1000, tol=0.3):
+    # generate the ship
+    ship = generate_ship(D=D, p=p)
+    print("Printing ship...")
+    print_ship(ship)
+
+    # compute T array for the ship
+    T = compute_value_function(ship, max_iters=max_iters, tol=tol)
+
+    # find the maximum value(s) in T
+    max_value = np.nanmax(T)
+    print(f"\nMaximum T value (longest expected steps): {max_value:.2f}")
+
+    # collect all bot/rat pairs with that max value
+    max_configs = []
+    for bx in range(D):
+        for by in range(D):
+            for rx in range(D):
+                for ry in range(D):
+                    if T[bx][by][rx][ry] == max_value:
+                        max_configs.append(((bx, by), (rx, ry)))
+
+    print(f"\nFound {len(max_configs)} configurations with max T:")
+
+    # print each max-value configuration
+    for (bx, by), (rx, ry) in max_configs:
+        print(f"  Bot: ({bx},{by})  |  Rat: ({rx},{ry})")
+
+    return ship, T, max_configs
+
+
+# shortest path to rat vs optimal path
+def shortest_path_vs_optimal_path(D, num_ships, match_count, total_configs):
+
+    # for the number of ships
+    for _ in range(num_ships):
+        ship = generate_ship(D, 0.5) # generate the ship
+        T = compute_value_function(ship) # create T for that ship
+
+        # list of open cells
+        open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r][c] == 'O']
+
+        # for every possible bot and rat position
+        for (bx, by) in open_cells:
+            for (rx, ry) in open_cells:
+
+                # skip if the bot found the rat (both in same cell)
+                if (bx, by) == (rx, ry):
+                    continue
+
+                # calculate the bot's best action (optimal search)
+                bot_T_action = best_bot_move(ship, bx, by, rx, ry, T)
+                path = a_star_search(ship, (bx, by), (rx, ry)) # plan the shortest path using A* search
+
+                if path is None or len(path) < 2:
+                    continue
+
+                bot_astar_action = path[1] # extract the bot's next action (shortest path)
+
+                # compare if optimal action and shortest path's action match
+                if bot_T_action == bot_astar_action:
+                    match_count += 1 # if they both match
+
+                total_configs += 1 # counter for total configurations (for calculating percentage)
+
+    # calculate the percentage of how much the optimal path matches the shortest path
+    percentage = (match_count / total_configs) * 100 if total_configs > 0 else 0
+    print(f"Percentage of configurations where T-optimal move = A* move: {percentage:.2f}%")
 
 
 # === Main function ===
@@ -586,36 +623,16 @@ def main():
     # evaluate on the test set
     evaluate_model(model, test_data)
     
-
+    '''
+    # comparing shortest path (A* search) with optimal search
     num_ships = 10
     D = 10  # grid size
     match_count = 0
     total_configs = 0
 
-    for _ in range(num_ships):
-        ship = generate_ship(D, 0.5)
-        T = compute_value_function(ship)
-        open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r][c] == 'O']
+    shortest_path_vs_optimal_path(num_ships, D, match_count, total_configs)
+    '''
 
-        for (bx, by) in open_cells:
-            for (rx, ry) in open_cells:
-                if (bx, by) == (rx, ry):
-                    continue
-
-                bot_T_action = best_bot_move(ship, bx, by, rx, ry, T)
-                path = a_star_search(ship, (bx, by), (rx, ry))  # your A* function
-
-                if path is None or len(path) < 2:
-                    continue
-
-                bot_astar_action = path[1]
-
-                if bot_T_action == bot_astar_action:
-                    match_count += 1
-
-                total_configs += 1
-
-    percentage = (match_count / total_configs) * 100 if total_configs > 0 else 0
-    print(f"Percentage of configurations where T-optimal move = A* move: {percentage:.2f}%")
+    
 # Run it
 main()
