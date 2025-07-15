@@ -410,8 +410,8 @@ class RatNet(nn.Module):
 
         # create the 3 layers (input_size, output_size) of the neural network
         self.fc1 = nn.Linear(4, 64) # input layer
-        self.fc2 = nn.Linear(64, 64) # hidden layer
-        self.fc3 = nn.Linear(64, 1) # output layer
+        self.fc2 = nn.Linear(64, 32) # hidden layer
+        self.fc3 = nn.Linear(32, 1) # output layer
 
     # computes the output of the network given input x
     def forward(self, x):
@@ -606,18 +606,18 @@ def main():
 
     print("Building dataset from T...")
     data = build_dataset_from_T(ml_T, ml_D)
-    print(f"Total data points: {len(data)}")
+    print(f"Total data points: {len(data)}") # 36000-37000 data points
 
     # Shuffle and create a fixed sample
-    sample_size = 10000
+    sample_size = 20000
     train_sample = random.sample(data, sample_size)
     test_data = [d for d in data if d not in train_sample]
 
     model = RatNet() # create the model
 
     # train the model
-    epochs = 10000
-    alpha = 0.005
+    epochs = 5000
+    alpha = 0.010
     train_model(model, train_sample, epochs, sample_size, alpha)
 
     # evaluate on the test set
