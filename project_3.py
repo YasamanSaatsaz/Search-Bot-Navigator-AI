@@ -642,7 +642,148 @@ def plot_train_vs_test_loss(train_losses, test_losses):
     plt.grid(True)
     plt.tight_layout()
     plt.show()
+def estimate_blocked_cells_between(ship, start, end):
+    bx, by = start
+    rx, ry = end
 
+    blocked = 0
+    total = 0
+
+    # define the rectangular region between bot and rat
+    row_min, row_max = sorted([bx, rx])
+    col_min, col_max = sorted([by, ry])
+
+    # scan through the box and count blocked cells
+    for r in range(row_min, row_max + 1):
+        for c in range(col_min, col_max + 1):
+            total += 1
+            if ship[r][c] == 'B':
+                blocked += 1
+
+    # avoid divide by zero
+    if total == 0:
+        return 0.0
+
+    return blocked / total  # percentage of blocked cells in region
+def build_augmented_dataset_from_T(T, D, ship):
+    data = []
+    open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r][c] == 'O']
+
+    for bx, by in open_cells:
+        for rx, ry in open_cells:
+            if (bx, by) == (rx, ry):
+                continue
+
+            steps = T[bx][by][rx][ry]
+            if not np.isfinite(steps):
+                continue
+
+            blocked_ratio = estimate_blocked_cells_between(ship, (bx, by), (rx, ry))
+            if blocked_ratio == -1:
+                continue  # skip unreachable paths
+
+            data.append(([bx, by, rx, ry, blocked_ratio], steps))
+    return data
+class RatNetAugmented(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(5, 64)  # 5 inputs now
+        self.fc2 = nn.Linear(64, 64)
+        self.fc3 = nn.Linear(64, 1)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+def get_augmented_batch(data, batch_size):
+    batch_indices = random.sample(range(len(data)), k=batch_size)
+    x_batch = torch.tensor([data[i][0] for i in batch_indices], dtype=torch.float32)
+    y_batch = torch.tensor([data[i][1] for i in batch_indices], dtype=torch.float32).unsqueeze(1)
+    return x_batch, y_batch 
+def train_augmented_model(model, data, epochs=10, batch_size=1024, lr=0.001):
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn = nn.MSELoss()
+
+    for epoch in range(epochs):
+        total_loss = 0
+        num_batches = len(data) // batch_size
+
+        for _ in range(num_batches):
+            x_batch, y_batch = get_augmented_batch(data, batch_size)
+            optimizer.zero_grad()
+            predictions = model(x_batch)
+            loss = loss_fn(predictions, y_batch)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+
+        avg_loss = total_loss / num_batches
+        print(f"[AUGMENTED] Epoch {epoch+1} - Avg Loss: {avg_loss:.4f}")
+def test_on_new_ship(model, D):
+    # Generate a new unseen ship
+    new_ship = generate_ship(D, p=0.5)
+    print("Generated new ship for testing.")
+
+    # Compute the true value function T for this new ship
+    T_new = compute_value_function(new_ship)
+
+    # Build new dataset using the same estimation function
+    test_data = build_augmented_dataset_from_T(T_new, D, new_ship)
+    print(f"New ship test data size: {len(test_data)} examples.")
+
+    # Convert test data into tensors
+    x_test = torch.tensor([item[0] for item in test_data], dtype=torch.float32)
+    y_test = torch.tensor([item[1] for item in test_data], dtype=torch.float32).unsqueeze(1)
+
+    # Predict using existing trained model
+    model.eval()
+    with torch.no_grad():
+        predictions = model(x_test)
+        mse = nn.MSELoss()(predictions, y_test).item()
+        print(f"[NEW SHIP] Generalization Test MSE: {mse:.4f}")
+def test_on_new_ship_og(model, D):
+    # Step 1: Generate a new ship
+    new_ship = generate_ship(D, p=0.5)
+    print("Generated new ship for testing.")
+
+    # Step 2: Compute the true value function T for the new ship
+    T_new = compute_value_function(new_ship)
+
+    # Step 3: Build a dataset of (bot_x, bot_y, rat_x, rat_y) → expected steps
+    test_data = build_dataset_from_T(T_new, D)  # FIXED: pass D, not the ship itself
+    print(f"New ship test data size: {len(test_data)} examples.")
+
+    # Step 4: Convert input-output pairs into PyTorch tensors
+    x_test = torch.tensor([list(item[0]) for item in test_data], dtype=torch.float32)
+    y_test = torch.tensor([item[1] for item in test_data], dtype=torch.float32).unsqueeze(1)
+
+    # Step 5: Predict using the trained model
+    model.eval()
+    with torch.no_grad():
+        predictions = model(x_test)
+        mse = nn.MSELoss()(predictions, y_test).item()
+        print(f"[NEW SHIP OG MODEL] Generalization Test MSE: {mse:.4f}")
+def main_augmented_training_and_generalization(D):
+    num_training_ships = 5
+    training_data = []
+
+    # Train on multiple ships
+    for i in range(num_training_ships):
+        ship = generate_ship(D, p=0.5)
+        print("Computing value function...")
+        T = compute_value_function(ship)
+        print("Value function ready!")
+        ship_data = build_augmented_dataset_from_T(T, D, ship)
+        training_data.extend(ship_data)
+        print(f"[Ship {i+1}] Training examples: {len(ship_data)}")
+
+    # Initialize and train model
+    model = RatNetAugmented()
+    train_augmented_model(model, training_data, epochs=300, batch_size=512, lr=0.001)
+
+    # Test on a new ship (not seen during training)
+    test_on_new_ship(model, D=D)
 
 # === Main function ===
 def main():
@@ -691,6 +832,9 @@ def main():
 
     # evaluate on the test set
     evaluate_model(model, test_data)
+    test_on_new_ship_og(model, D)
+    D=15
+    main_augmented_training_and_generalization(D)
     
     # train_losses, test_losses = train_and_track(model, train_sample, test_data, epochs, sample_size, alpha)
 
