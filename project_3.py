@@ -10,6 +10,8 @@ import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
+# for graphing
+import matplotlib.pyplot as plt
 
 
 # === Ship generation ===
@@ -502,6 +504,46 @@ def evaluate_model(model, test_data):
     return predictions # return the predicted values for the testing data
 
 
+# tracks both the training loss and testing loss (training loop remains the same otherwise)
+def train_and_track(model, train_data, test_data, epochs=100, batch_size=1024, lr=0.001):
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    loss_fn = nn.MSELoss()
+
+    # for future graphing
+    train_losses = []
+    test_losses = []
+
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0
+        num_batches = len(train_data) // batch_size
+
+        for _ in range(num_batches):
+            x_batch, y_batch = get_batch(train_data, batch_size)
+            optimizer.zero_grad()
+            predictions = model(x_batch)
+            loss = loss_fn(predictions, y_batch)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+
+        avg_train_loss = total_loss / num_batches
+        train_losses.append(avg_train_loss)
+
+        # Evaluate on test data
+        model.eval()
+        with torch.no_grad():
+            x_test = torch.tensor([list(pos) for pos, _ in test_data], dtype=torch.float32)
+            y_test = torch.tensor([label for _, label in test_data], dtype=torch.float32).unsqueeze(1)
+            test_predictions = model(x_test)
+            test_loss = loss_fn(test_predictions, y_test).item()
+            test_losses.append(test_loss)
+
+        print(f"Epoch {epoch+1} - Train Loss: {avg_train_loss:.4f} - Test Loss: {test_loss:.4f}")
+
+    return train_losses, test_losses
+
+
 # === Functions for write-up ===
 
 # simulating search with T to find max T configurations (for write-up) ===
@@ -575,6 +617,33 @@ def shortest_path_vs_optimal_path(D, num_ships, match_count, total_configs):
     print(f"Percentage of configurations where T-optimal move = A* move: {percentage:.2f}%")
 
 
+# graphs average training loss over time
+def plot_training_loss(losses, title="Training Loss Over Time"):
+    plt.figure(figsize=(8, 5))
+    plt.plot(losses, label='Training Loss (MSE)', color='blue')
+    plt.xlabel("Epoch")
+    plt.ylabel("Mean Squared Error")
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
+# graphs both the training and testing losses for comparison
+def plot_train_vs_test_loss(train_losses, test_losses):
+    plt.figure(figsize=(10, 6))
+    plt.plot(train_losses, label='Training Loss', color='blue')
+    plt.plot(test_losses, label='Testing Loss', color='orange')
+    plt.xlabel('Epoch')
+    plt.ylabel('MSE Loss')
+    plt.title('Training vs. Testing Loss Over Epochs')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
 # === Main function ===
 def main():
     ship = generate_ship(20, 0.5)
@@ -616,13 +685,15 @@ def main():
     model = RatNet() # create the model
 
     # train the model
-    epochs = 5000
-    alpha = 0.010
+    epochs = 2000
+    alpha = 0.008
     train_model(model, train_sample, epochs, sample_size, alpha)
 
     # evaluate on the test set
     evaluate_model(model, test_data)
     
+    # train_losses, test_losses = train_and_track(model, train_sample, test_data, epochs, sample_size, alpha)
+
     '''
     # comparing shortest path (A* search) with optimal search
     num_ships = 10
@@ -632,6 +703,12 @@ def main():
 
     shortest_path_vs_optimal_path(num_ships, D, match_count, total_configs)
     '''
+
+    # graphing average training loss over time
+    # plot_training_loss(train_losses)
+
+    # graph train loss vs. testing loss
+    # plot_train_vs_test_loss(train_losses, test_losses)
 
     
 # Run it
