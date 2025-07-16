@@ -642,12 +642,18 @@ def plot_train_vs_test_loss(train_losses, test_losses):
     plt.grid(True)
     plt.tight_layout()
     plt.show()
-def estimate_blocked_cells_between(ship, start, end):
-    bx, by = start
-    rx, ry = end
 
-    blocked = 0
-    total = 0
+
+# === Augmented neural network (improved) ===
+
+# gives an estimate of how many blocked cells there are between the bot (start) and the rat (end)
+def estimate_blocked_cells_between(ship, start, end):
+    bx, by = start # start at bot's position
+    rx, ry = end # end at rat's position
+
+    # counters
+    blocked = 0 # number of seen blocked cells
+    total = 0 # total number of cells examined
 
     # define the rectangular region between bot and rat
     row_min, row_max = sorted([bx, rx])
@@ -656,70 +662,103 @@ def estimate_blocked_cells_between(ship, start, end):
     # scan through the box and count blocked cells
     for r in range(row_min, row_max + 1):
         for c in range(col_min, col_max + 1):
-            total += 1
+            total += 1 # saw this cell
             if ship[r][c] == 'B':
-                blocked += 1
+                blocked += 1 # saw a blocked cell
 
-    # avoid divide by zero
+    # avoid division by zero
     if total == 0:
         return 0.0
 
     return blocked / total  # percentage of blocked cells in region
+
+
+# builds a training dataset that includes bot/rat positions and new feature: blocked cell ration between bot/rat positions
 def build_augmented_dataset_from_T(T, D, ship):
-    data = []
+    data = [] # holds training examples
+    # list of traversable cells
     open_cells = [(r, c) for r in range(D) for c in range(D) if ship[r][c] == 'O']
 
+    # iterate through possible bot and rat positions
     for bx, by in open_cells:
         for rx, ry in open_cells:
-            if (bx, by) == (rx, ry):
+            if (bx, by) == (rx, ry): # skip if bot and rat are in the same cell
                 continue
 
+            # get the expected steps from configuration array T
             steps = T[bx][by][rx][ry]
-            if not np.isfinite(steps):
+            if not np.isfinite(steps): # skip if value is infinite (unreachable configuration)
                 continue
 
+            # compute the number of blocked cells between bot and rat
             blocked_ratio = estimate_blocked_cells_between(ship, (bx, by), (rx, ry))
             if blocked_ratio == -1:
                 continue  # skip unreachable paths
 
+            # add the training example to the dataset
             data.append(([bx, by, rx, ry, blocked_ratio], steps))
+
     return data
+
+
+# new augmented neural network class
 class RatNetAugmented(nn.Module):
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(5, 64)  # 5 inputs now
-        self.fc2 = nn.Linear(64, 64)
-        self.fc3 = nn.Linear(64, 1)
+        # network layers
+        self.fc1 = nn.Linear(5, 64)  # 5 inputs now (includes blocked ratio)
+        self.fc2 = nn.Linear(64, 32) # hidden layer
+        self.fc3 = nn.Linear(32, 1) # output layer
 
+    # forward pass -> input x transformed into output
     def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = torch.relu(self.fc1(x)) # pass input through input layer, apply ReLU activation
+        x = torch.relu(self.fc2(x)) # pass result through second layer, apply ReLU
+        x = self.fc3(x) # pass output of hidden layer to output layer (no activation needed)
         return x
-def get_augmented_batch(data, batch_size):
-    batch_indices = random.sample(range(len(data)), k=batch_size)
-    x_batch = torch.tensor([data[i][0] for i in batch_indices], dtype=torch.float32)
-    y_batch = torch.tensor([data[i][1] for i in batch_indices], dtype=torch.float32).unsqueeze(1)
-    return x_batch, y_batch 
-def train_augmented_model(model, data, epochs=10, batch_size=1024, lr=0.001):
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    loss_fn = nn.MSELoss()
+    
 
+# gets a random batch from the augmented dataset
+def get_augmented_batch(data, batch_size):
+    # gets random indices for the random batch
+    batch_indices = random.sample(range(len(data)), k=batch_size)
+    
+    # get input features
+    x_batch = torch.tensor([data[i][0] for i in batch_indices], dtype=torch.float32)
+    # get output values (steps) and reshape the data
+    y_batch = torch.tensor([data[i][1] for i in batch_indices], dtype=torch.float32).unsqueeze(1)
+    
+    return x_batch, y_batch 
+
+
+# train the augmented model
+def train_augmented_model(model, data, epochs=10, batch_size=1024, lr=0.001):
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr) # optimizer
+    loss_fn = nn.MSELoss() # loss function
+
+    # loop over each epoch
     for epoch in range(epochs):
         total_loss = 0
-        num_batches = len(data) // batch_size
+        num_batches = len(data) // batch_size # compute how many batches fit into the dataset
 
+        # for each random batch of training data
         for _ in range(num_batches):
+            # get the random batch
             x_batch, y_batch = get_augmented_batch(data, batch_size)
-            optimizer.zero_grad()
-            predictions = model(x_batch)
-            loss = loss_fn(predictions, y_batch)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
+            optimizer.zero_grad() # clear previous gradients
 
+            # run the batch through the model to get predictions
+            predictions = model(x_batch)
+            loss = loss_fn(predictions, y_batch) # compute loss
+            loss.backward() # compute gradients
+            optimizer.step() # update the model's weights using gradients
+            total_loss += loss.item() # accumulate total loss
+
+        # compute and print average loss for the epoch
         avg_loss = total_loss / num_batches
         print(f"[AUGMENTED] Epoch {epoch+1} - Avg Loss: {avg_loss:.4f}")
+
+
 def test_on_new_ship(model, D):
     # Generate a new unseen ship
     new_ship = generate_ship(D, p=0.5)
@@ -742,6 +781,8 @@ def test_on_new_ship(model, D):
         predictions = model(x_test)
         mse = nn.MSELoss()(predictions, y_test).item()
         print(f"[NEW SHIP] Generalization Test MSE: {mse:.4f}")
+
+
 def test_on_new_ship_og(model, D):
     # Step 1: Generate a new ship
     new_ship = generate_ship(D, p=0.5)
@@ -764,6 +805,8 @@ def test_on_new_ship_og(model, D):
         predictions = model(x_test)
         mse = nn.MSELoss()(predictions, y_test).item()
         print(f"[NEW SHIP OG MODEL] Generalization Test MSE: {mse:.4f}")
+
+
 def main_augmented_training_and_generalization(D):
     num_training_ships = 5
     training_data = []
@@ -784,6 +827,7 @@ def main_augmented_training_and_generalization(D):
 
     # Test on a new ship (not seen during training)
     test_on_new_ship(model, D=D)
+
 
 # === Main function ===
 def main():
@@ -833,7 +877,7 @@ def main():
     # evaluate on the test set
     evaluate_model(model, test_data)
     test_on_new_ship_og(model, D)
-    D=15
+    D = 20
     main_augmented_training_and_generalization(D)
     
     # train_losses, test_losses = train_and_track(model, train_sample, test_data, epochs, sample_size, alpha)
